@@ -4,16 +4,129 @@
         <p>Hello, {{user.email}}! Your monitoring dashboard is ready.</p>
     </div>
 
+    {{#if errors}}
+        <div class="error-messages">
+            {{#each errors}}
+                <div class="error-message">{{this.msg}}</div>
+            {{/each}}
+        </div>
+    {{/if}}
+
+    {{#if success}}
+        <div class="success-message">{{success}}</div>
+    {{/if}}
+
     <div class="dashboard-content">
         <div class="dashboard-section">
             <h2>Monitors</h2>
-            <p>No monitors configured yet. Start by adding your first monitor.</p>
-            <button class="btn btn-primary">Add Monitor</button>
+            
+            {{#if monitors.length}}
+                <div class="monitors-list">
+                    {{#each monitors}}
+                        <div class="monitor-item">
+                            <div class="monitor-info">
+                                <h3 class="monitor-name">{{this.name}}</h3>
+                                <p class="monitor-url">{{this.url}}</p>
+                                <div class="monitor-meta">
+                                    <span class="check-interval">Checks every {{this.interval_minutes}} minute{{#if (gt this.interval_minutes 1)}}s{{/if}}</span>
+                                    {{#if this.last_check}}
+                                        <span class="last-check">Last checked: {{formatDate this.last_check}}</span>
+                                    {{/if}}
+                                </div>
+                            </div>
+                            <div class="monitor-status">
+                                <span class="status status-{{this.status}}">
+                                    {{#if (eq this.status 'up')}}
+                                        UP
+                                    {{else if (eq this.status 'down')}}
+                                        DOWN
+                                    {{else}}
+                                        UNKNOWN
+                                    {{/if}}
+                                </span>
+                                {{#if (eq this.status 'up')}}
+                                    {{#if this.response_time}}
+                                        <span class="response-time">{{this.response_time}}ms</span>
+                                    {{/if}}
+                                {{else if this.error_message}}
+                                    <span class="error-message">{{this.error_message}}</span>
+                                {{/if}}
+                            </div>
+                        </div>
+                    {{/each}}
+                </div>
+            {{else}}
+                <p class="no-monitors">No monitors configured yet. Start by adding your first monitor.</p>
+            {{/if}}
+
+            <button class="btn btn-primary" id="add-monitor-btn">Add Monitor</button>
+
+            <!-- Add Monitor Form (initially hidden) -->
+            <div class="add-monitor-form" id="add-monitor-form" style="display: none;">
+                <h3>Add New Monitor</h3>
+                <form action="/monitors" method="POST">
+                    <div class="form-group">
+                        <label for="name">Monitor Name</label>
+                        <input type="text" name="name" id="name" placeholder="My Website">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="url">URL</label>
+                        <input type="text" name="url" id="url" placeholder="https://example.com">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="interval">Check Interval</label>
+                        <select name="interval" id="interval">
+                            <option value="">Select interval...</option>
+                            <option value="1">1 minute</option>
+                            <option value="5">5 minutes</option>
+                            <option value="15">15 minutes</option>
+                            <option value="30">30 minutes</option>
+                            <option value="60">1 hour</option>
+                        </select>
+                    </div>
+                    
+                    <div class="form-actions">
+                        <button type="submit" class="btn btn-primary" id="submit-monitor-btn">Add Monitor</button>
+                        <button type="button" class="btn btn-secondary" id="cancel-monitor-btn">Cancel</button>
+                    </div>
+                </form>
+            </div>
         </div>
 
         <div class="dashboard-section">
             <h2>Recent Activity</h2>
-            <p>No recent activity.</p>
+            {{#if monitors.length}}
+                <p>Monitoring {{monitors.length}} website{{#if (gt monitors.length 1)}}s{{/if}}.</p>
+            {{else}}
+                <p>No monitors configured yet.</p>
+            {{/if}}
         </div>
     </div>
 </div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const addBtn = document.getElementById('add-monitor-btn');
+    const form = document.getElementById('add-monitor-form');
+    const cancelBtn = document.getElementById('cancel-monitor-btn');
+
+    addBtn.addEventListener('click', function() {
+        form.style.display = 'block';
+        addBtn.style.display = 'none';
+    });
+
+    cancelBtn.addEventListener('click', function() {
+        form.style.display = 'none';
+        addBtn.style.display = 'block';
+        // Reset form
+        form.querySelector('form').reset();
+    });
+
+    // Auto-refresh the page every 30 seconds to show updated statuses
+    setInterval(function() {
+        window.location.reload();
+    }, 30000);
+});
+</script>
