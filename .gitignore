@@ -4,3 +4,4 @@ playwright-report
 test-results
 .idea
 package-lock.json
+database/uptime-kama.db
