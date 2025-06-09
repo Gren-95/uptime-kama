@@ -75,8 +75,8 @@ test.describe('Delete Monitor (Story 1.3)', () => {
         // Confirm deletion
         await page.click('.confirm-delete-btn');
 
-        // Wait for page to reload/update
-        await page.waitForLoadState('networkidle');
+        // Wait for the monitor to be removed from DOM
+        await expect(page.locator('.monitor-item').filter({ hasText: 'Monitor to Delete' })).not.toBeVisible();
 
         // Monitor should be removed from dashboard immediately
         await expect(page.locator('.monitor-item').filter({ hasText: 'Monitor to Delete' })).not.toBeVisible();
@@ -105,7 +105,9 @@ test.describe('Delete Monitor (Story 1.3)', () => {
         // Delete the monitor
         await monitorItem.locator('.delete-monitor-btn').click();
         await page.click('.confirm-delete-btn');
-        await page.waitForLoadState('networkidle');
+
+        // Wait for monitor to be removed
+        await expect(page.locator('.monitor-item').filter({ hasText: 'Frequent Check Monitor' })).not.toBeVisible();
 
         // Monitor should be completely removed
         await expect(page.locator('.monitor-item').filter({ hasText: 'Frequent Check Monitor' })).not.toBeVisible();
@@ -133,7 +135,6 @@ test.describe('Delete Monitor (Story 1.3)', () => {
         // Delete first monitor
         await page.locator('.monitor-item').first().locator('.delete-monitor-btn').click();
         await page.click('.confirm-delete-btn');
-        await page.waitForLoadState('networkidle');
 
         // Should have 2 monitors left
         await expect(page.locator('.monitor-item')).toHaveCount(2);
@@ -141,7 +142,6 @@ test.describe('Delete Monitor (Story 1.3)', () => {
         // Delete another monitor
         await page.locator('.monitor-item').first().locator('.delete-monitor-btn').click();
         await page.click('.confirm-delete-btn');
-        await page.waitForLoadState('networkidle');
 
         // Should have 1 monitor left
         await expect(page.locator('.monitor-item')).toHaveCount(1);
@@ -153,9 +153,8 @@ test.describe('Delete Monitor (Story 1.3)', () => {
         // Delete monitor
         await monitorItem.locator('.delete-monitor-btn').click();
         await page.click('.confirm-delete-btn');
-        await page.waitForLoadState('networkidle');
 
-        // Should see success message
-        await expect(page.locator('.success-message')).toContainText(/monitor.*deleted|monitor.*removed/i);
+        // Should see success toast notification
+        await expect(page.locator('.toast.success .toast-message')).toContainText(/monitor.*deleted|monitor.*removed/i);
     });
 });
