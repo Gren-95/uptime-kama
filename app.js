@@ -336,6 +336,47 @@ app.post('/monitors', checkDb, async (req, res) => {
     }
 });
 
+// Delete monitor route
+app.delete('/monitors/:id', checkDb, async (req, res) => {
+    if (!req.session.user) {
+        return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    try {
+        const monitorId = parseInt(req.params.id);
+        
+        if (isNaN(monitorId)) {
+            return res.status(400).json({ error: 'Invalid monitor ID' });
+        }
+
+        // Verify the monitor belongs to the current user
+        const monitor = await db.getMonitorById(monitorId);
+        if (!monitor) {
+            return res.status(404).json({ error: 'Monitor not found' });
+        }
+
+        if (monitor.user_id !== req.session.user.id) {
+            return res.status(403).json({ error: 'Access denied' });
+        }
+
+        // Delete the monitor
+        const deletedCount = await db.deleteMonitor(monitorId, req.session.user.id);
+        
+        if (deletedCount === 0) {
+            return res.status(404).json({ error: 'Monitor not found' });
+        }
+
+        res.json({ 
+            success: true, 
+            message: 'Monitor deleted successfully' 
+        });
+
+    } catch (error) {
+        console.error('Monitor deletion error:', error);
+        res.status(500).json({ error: 'Failed to delete monitor' });
+    }
+});
+
 // Logout route
 app.post('/logout', (req, res) => {
     req.session.destroy((err) => {

@@ -52,6 +52,9 @@
                                     <span class="error-message">{{this.error_message}}</span>
                                 {{/if}}
                             </div>
+                            <div class="monitor-actions">
+                                <button class="btn btn-danger btn-sm delete-monitor-btn" data-monitor-id="{{this.id}}" data-monitor-name="{{this.name}}">Delete</button>
+                            </div>
                         </div>
                     {{/each}}
                 </div>
@@ -60,6 +63,21 @@
             {{/if}}
 
             <button class="btn btn-primary" id="add-monitor-btn">Add Monitor</button>
+
+            <!-- Confirmation Dialog (initially hidden) -->
+            <div class="confirmation-dialog" id="delete-confirmation-dialog" style="display: none;">
+                <div class="confirmation-overlay">
+                    <div class="confirmation-content">
+                        <h3>Confirm Deletion</h3>
+                        <p>Are you sure you want to delete the monitor "<span id="monitor-name-display"></span>"?</p>
+                        <p>This action cannot be undone and the monitor will stop checking immediately.</p>
+                        <div class="confirmation-actions">
+                            <button class="btn btn-danger confirm-delete-btn">Delete Monitor</button>
+                            <button class="btn btn-secondary cancel-delete-btn">Cancel</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
 
             <!-- Add Monitor Form (initially hidden) -->
             <div class="add-monitor-form" id="add-monitor-form" style="display: none;">
@@ -106,11 +124,65 @@
     </div>
 </div>
 
+<!-- Toast Notification Container -->
+<div id="toast-container"></div>
+
 <script>
 document.addEventListener('DOMContentLoaded', function() {
     const addBtn = document.getElementById('add-monitor-btn');
     const form = document.getElementById('add-monitor-form');
     const cancelBtn = document.getElementById('cancel-monitor-btn');
+    const deleteDialog = document.getElementById('delete-confirmation-dialog');
+    const confirmDeleteBtn = document.querySelector('.confirm-delete-btn');
+    const cancelDeleteBtn = document.querySelector('.cancel-delete-btn');
+    const monitorNameDisplay = document.getElementById('monitor-name-display');
+    
+    let currentMonitorId = null;
+
+    // Toast notification functions
+    function showToast(message, type = 'success', duration = 4000) {
+        const toastContainer = document.getElementById('toast-container');
+        
+        const toast = document.createElement('div');
+        toast.className = `toast ${type}`;
+        
+        const icon = getToastIcon(type);
+        
+        toast.innerHTML = `
+            <span class="toast-icon">${icon}</span>
+            <span class="toast-message">${message}</span>
+            <button class="toast-close" onclick="removeToast(this)">×</button>
+        `;
+        
+        toastContainer.appendChild(toast);
+        
+        // Trigger animation
+        setTimeout(() => {
+            toast.classList.add('show');
+        }, 100);
+        
+        // Auto remove after duration
+        setTimeout(() => {
+            removeToast(toast.querySelector('.toast-close'));
+        }, duration);
+    }
+    
+    function getToastIcon(type) {
+        switch(type) {
+            case 'success': return '✓';
+            case 'error': return '✕';
+            case 'warning': return '⚠';
+            default: return 'ℹ';
+        }
+    }
+    
+    window.removeToast = function(closeBtn) {
+        const toast = closeBtn.parentElement;
+        toast.classList.remove('show');
+        setTimeout(() => {
+            toast.remove();
+        }, 300);
+    };
 
     addBtn.addEventListener('click', function() {
         form.style.display = 'block';
@@ -122,6 +194,78 @@ document.addEventListener('DOMContentLoaded', function() {
         addBtn.style.display = 'block';
         // Reset form
         form.querySelector('form').reset();
+    });
+
+    // Handle delete button clicks
+    document.addEventListener('click', function(e) {
+        if (e.target.classList.contains('delete-monitor-btn')) {
+            currentMonitorId = e.target.getAttribute('data-monitor-id');
+            const monitorName = e.target.getAttribute('data-monitor-name');
+            monitorNameDisplay.textContent = monitorName;
+            deleteDialog.style.display = 'block';
+        }
+    });
+
+    // Handle confirmation dialog buttons
+    confirmDeleteBtn.addEventListener('click', async function() {
+        if (!currentMonitorId) return;
+
+        try {
+            const response = await fetch(`/monitors/${currentMonitorId}`, {
+                method: 'DELETE',
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            });
+
+            const result = await response.json();
+
+            if (response.ok) {
+                // Remove the monitor from the DOM
+                const monitorToDelete = document.querySelector(`[data-monitor-id="${currentMonitorId}"]`).closest('.monitor-item');
+                monitorToDelete.remove();
+                
+                // Check if there are no monitors left and show the "no monitors" message
+                const remainingMonitors = document.querySelectorAll('.monitor-item');
+                if (remainingMonitors.length === 0) {
+                    const monitorsContainer = document.querySelector('.monitors-list');
+                    if (monitorsContainer) {
+                        monitorsContainer.remove();
+                    }
+                    
+                    const addMonitorBtn = document.getElementById('add-monitor-btn');
+                    const noMonitorsMsg = document.createElement('p');
+                    noMonitorsMsg.className = 'no-monitors';
+                    noMonitorsMsg.textContent = 'No monitors configured yet. Start by adding your first monitor.';
+                    addMonitorBtn.parentNode.insertBefore(noMonitorsMsg, addMonitorBtn);
+                }
+
+                // Show success toast
+                showToast(result.message, 'success');
+
+                // Hide dialog
+                deleteDialog.style.display = 'none';
+                currentMonitorId = null;
+            } else {
+                showToast(result.error, 'error');
+            }
+        } catch (error) {
+            console.error('Delete error:', error);
+            showToast('Failed to delete monitor. Please try again.', 'error');
+        }
+    });
+
+    cancelDeleteBtn.addEventListener('click', function() {
+        deleteDialog.style.display = 'none';
+        currentMonitorId = null;
+    });
+
+    // Close dialog when clicking overlay
+    deleteDialog.addEventListener('click', function(e) {
+        if (e.target === deleteDialog || e.target.classList.contains('confirmation-overlay')) {
+            deleteDialog.style.display = 'none';
+            currentMonitorId = null;
+        }
     });
 
     // Auto-refresh the page every 30 seconds to show updated statuses
