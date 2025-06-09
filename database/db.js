@@ -47,13 +47,61 @@ function createTables() {
             )
         `;
 
+        const createMonitorsTable = `
+            CREATE TABLE IF NOT EXISTS monitors (
+                                                   id INTEGER PRIMARY KEY AUTOINCREMENT,
+                                                   user_id INTEGER NOT NULL,
+                                                   name TEXT NOT NULL,
+                                                   url TEXT NOT NULL,
+                                                   interval_minutes INTEGER NOT NULL DEFAULT 5,
+                                                   status TEXT DEFAULT 'unknown',
+                                                   last_check DATETIME,
+                                                   response_time INTEGER,
+                                                   status_code INTEGER,
+                                                   error_message TEXT,
+                                                   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                                                   updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                                                   FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+            )
+        `;
+
+        const createMonitorChecksTable = `
+            CREATE TABLE IF NOT EXISTS monitor_checks (
+                                                         id INTEGER PRIMARY KEY AUTOINCREMENT,
+                                                         monitor_id INTEGER NOT NULL,
+                                                         status TEXT NOT NULL,
+                                                         response_time INTEGER,
+                                                         status_code INTEGER,
+                                                         error_message TEXT,
+                                                         checked_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                                                         FOREIGN KEY (monitor_id) REFERENCES monitors (id) ON DELETE CASCADE
+            )
+        `;
+
+        // Create tables sequentially
         db.run(createUsersTable, (err) => {
             if (err) {
                 console.error('Error creating users table:', err.message);
                 reject(err);
                 return;
             }
-            resolve();
+
+            db.run(createMonitorsTable, (err) => {
+                if (err) {
+                    console.error('Error creating monitors table:', err.message);
+                    reject(err);
+                    return;
+                }
+
+                db.run(createMonitorChecksTable, (err) => {
+                    if (err) {
+                        console.error('Error creating monitor_checks table:', err.message);
+                        reject(err);
+                        return;
+                    }
+                    resolve();
+                });
+            });
         });
     });
 }
@@ -117,11 +165,101 @@ function close() {
     });
 }
 
+// Monitor-related functions
+function createMonitor(userId, name, url, intervalMinutes) {
+    return new Promise((resolve, reject) => {
+        const sql = 'INSERT INTO monitors (user_id, name, url, interval_minutes) VALUES (?, ?, ?, ?)';
+        db.run(sql, [userId, name, url, intervalMinutes], function(err) {
+            if (err) {
+                reject(err);
+                return;
+            }
+            resolve(this.lastID);
+        });
+    });
+}
+
+function getMonitorsByUserId(userId) {
+    return new Promise((resolve, reject) => {
+        const sql = 'SELECT * FROM monitors WHERE user_id = ? ORDER BY created_at DESC';
+        db.all(sql, [userId], (err, rows) => {
+            if (err) {
+                reject(err);
+                return;
+            }
+            resolve(rows);
+        });
+    });
+}
+
+function getMonitorById(monitorId) {
+    return new Promise((resolve, reject) => {
+        const sql = 'SELECT * FROM monitors WHERE id = ?';
+        db.get(sql, [monitorId], (err, row) => {
+            if (err) {
+                reject(err);
+                return;
+            }
+            resolve(row);
+        });
+    });
+}
+
+function updateMonitorStatus(monitorId, status, responseTime, statusCode, errorMessage) {
+    return new Promise((resolve, reject) => {
+        const sql = `
+            UPDATE monitors 
+            SET status = ?, response_time = ?, status_code = ?, error_message = ?, 
+                last_check = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP 
+            WHERE id = ?
+        `;
+        db.run(sql, [status, responseTime, statusCode, errorMessage, monitorId], function(err) {
+            if (err) {
+                reject(err);
+                return;
+            }
+            resolve(this.changes);
+        });
+    });
+}
+
+function createMonitorCheck(monitorId, status, responseTime, statusCode, errorMessage) {
+    return new Promise((resolve, reject) => {
+        const sql = 'INSERT INTO monitor_checks (monitor_id, status, response_time, status_code, error_message) VALUES (?, ?, ?, ?, ?)';
+        db.run(sql, [monitorId, status, responseTime, statusCode, errorMessage], function(err) {
+            if (err) {
+                reject(err);
+                return;
+            }
+            resolve(this.lastID);
+        });
+    });
+}
+
+function deleteMonitor(monitorId, userId) {
+    return new Promise((resolve, reject) => {
+        const sql = 'DELETE FROM monitors WHERE id = ? AND user_id = ?';
+        db.run(sql, [monitorId, userId], function(err) {
+            if (err) {
+                reject(err);
+                return;
+            }
+            resolve(this.changes);
+        });
+    });
+}
+
 module.exports = {
     initialize,
     getDatabase,
     createUser,
     getUserByEmail,
     deleteUser,
-    close
+    close,
+    createMonitor,
+    getMonitorsByUserId,
+    getMonitorById,
+    updateMonitorStatus,
+    createMonitorCheck,
+    deleteMonitor
 };
