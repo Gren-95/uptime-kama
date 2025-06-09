@@ -32,6 +32,13 @@
                                     {{#if this.last_check}}
                                         <span class="last-check">Last checked: {{formatDate this.last_check}}</span>
                                     {{/if}}
+                                    <span class="email-notification-status notification-status">
+                                        {{#if this.email_notifications}}
+                                            📧 Email notifications: ON
+                                        {{else}}
+                                            📧 Email notifications: OFF
+                                        {{/if}}
+                                    </span>
                                 </div>
                             </div>
                             <div class="monitor-status">
@@ -53,6 +60,7 @@
                                 {{/if}}
                             </div>
                             <div class="monitor-actions">
+                                <button class="btn btn-primary btn-sm edit-btn" data-monitor-id="{{this.id}}" data-monitor-name="{{this.name}}" data-monitor-url="{{this.url}}" data-monitor-interval="{{this.interval_minutes}}" data-monitor-email="{{this.email_notifications}}">Edit</button>
                                 <button class="btn btn-danger btn-sm delete-monitor-btn" data-monitor-id="{{this.id}}" data-monitor-name="{{this.name}}">Delete</button>
                             </div>
                         </div>
@@ -105,9 +113,58 @@
                         </select>
                     </div>
                     
+                    <div class="form-group">
+                        <label class="checkbox-label">
+                            <input type="checkbox" name="emailNotifications" checked>
+                            Enable email notifications for this monitor
+                        </label>
+                    </div>
+                    
                     <div class="form-actions">
                         <button type="submit" class="btn btn-primary" id="submit-monitor-btn">Add Monitor</button>
                         <button type="button" class="btn btn-secondary" id="cancel-monitor-btn">Cancel</button>
+                    </div>
+                </form>
+            </div>
+
+            <!-- Edit Monitor Form (initially hidden) -->
+            <div class="edit-monitor-form" id="edit-monitor-form" style="display: none;">
+                <h3>Edit Monitor</h3>
+                <form id="edit-monitor-form-element">
+                    <input type="hidden" id="edit-monitor-id" name="editMonitorId">
+                    
+                    <div class="form-group">
+                        <label for="edit-name">Monitor Name</label>
+                        <input type="text" name="editName" id="edit-name" placeholder="My Website">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="edit-url">URL</label>
+                        <input type="text" name="editUrl" id="edit-url" placeholder="https://example.com">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="edit-interval">Check Interval</label>
+                        <select name="editInterval" id="edit-interval">
+                            <option value="">Select interval...</option>
+                            <option value="1">1 minute</option>
+                            <option value="5">5 minutes</option>
+                            <option value="15">15 minutes</option>
+                            <option value="30">30 minutes</option>
+                            <option value="60">1 hour</option>
+                        </select>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label class="checkbox-label">
+                            <input type="checkbox" name="emailNotifications" id="edit-emailNotifications">
+                            Enable email notifications for this monitor
+                        </label>
+                    </div>
+                    
+                    <div class="form-actions">
+                        <button type="submit" class="btn btn-primary" id="save-monitor-btn">Update Monitor</button>
+                        <button type="button" class="btn btn-secondary" id="cancel-edit-monitor-btn">Cancel</button>
                     </div>
                 </form>
             </div>
@@ -126,6 +183,8 @@
 
 <!-- Toast Notification Container -->
 <div id="toast-container"></div>
+
+
 
 <script>
 document.addEventListener('DOMContentLoaded', function() {
@@ -150,7 +209,7 @@ document.addEventListener('DOMContentLoaded', function() {
         
         toast.innerHTML = `
             <span class="toast-icon">${icon}</span>
-            <span class="toast-message">${message}</span>
+            <span class="toast-message ${type === 'success' ? 'success-message' : ''}">${message}</span>
             <button class="toast-close" onclick="removeToast(this)">×</button>
         `;
         
@@ -185,15 +244,122 @@ document.addEventListener('DOMContentLoaded', function() {
     };
 
     addBtn.addEventListener('click', function() {
+        // Hide edit form completely
+        editForm.style.display = 'none';
+        editForm.style.visibility = 'hidden';
+        
+        // Show add form
         form.style.display = 'block';
+        form.style.visibility = 'visible';
         addBtn.style.display = 'none';
     });
 
     cancelBtn.addEventListener('click', function() {
         form.style.display = 'none';
+        form.style.visibility = 'hidden';
         addBtn.style.display = 'block';
         // Reset form
         form.querySelector('form').reset();
+        // Ensure edit form is hidden
+        editForm.style.display = 'none';
+        editForm.style.visibility = 'hidden';
+    });
+
+    // Edit monitor functionality
+    const editForm = document.getElementById('edit-monitor-form');
+    const editFormElement = document.getElementById('edit-monitor-form-element');
+    const cancelEditBtn = document.getElementById('cancel-edit-monitor-btn');
+
+    // Handle edit button clicks
+    document.addEventListener('click', function(e) {
+        if (e.target.classList.contains('edit-btn')) {
+            const monitorId = e.target.getAttribute('data-monitor-id');
+            const monitorName = e.target.getAttribute('data-monitor-name');
+            const monitorUrl = e.target.getAttribute('data-monitor-url');
+            const monitorInterval = e.target.getAttribute('data-monitor-interval');
+            const monitorEmail = e.target.getAttribute('data-monitor-email');
+
+            // Hide add form completely
+            form.style.display = 'none';
+            form.style.visibility = 'hidden';
+            addBtn.style.display = 'none';
+
+            // Populate edit form
+            document.getElementById('edit-monitor-id').value = monitorId;
+            document.getElementById('edit-name').value = monitorName;
+            document.getElementById('edit-url').value = monitorUrl;
+            document.getElementById('edit-interval').value = monitorInterval;
+            document.getElementById('edit-emailNotifications').checked = monitorEmail === '1';
+
+            // Show edit form
+            editForm.style.display = 'block';
+            editForm.style.visibility = 'visible';
+        }
+    });
+
+    // Handle edit form submission
+    editFormElement.addEventListener('submit', async function(e) {
+        e.preventDefault();
+        
+        const formData = new FormData(editFormElement);
+        const monitorId = formData.get('editMonitorId');
+        
+        const data = {
+            name: formData.get('editName'),
+            url: formData.get('editUrl'),
+            interval: formData.get('editInterval'),
+            emailNotifications: formData.get('emailNotifications')
+        };
+
+        try {
+            const response = await fetch(`/monitors/${monitorId}`, {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(data)
+            });
+
+            const result = await response.json();
+
+            if (response.ok) {
+                showToast('Monitor updated', 'success');
+                // Hide edit form and restore add form
+                editForm.style.display = 'none';
+                editForm.style.visibility = 'hidden';
+                addBtn.style.display = 'block';
+                editFormElement.reset();
+                
+
+                
+                // Refresh page to show updated monitor
+                setTimeout(() => {
+                    window.location.reload();
+                }, 1000);
+            } else {
+                if (result.errors) {
+                    result.errors.forEach(error => {
+                        showToast(error.msg, 'error');
+                    });
+                } else {
+                    showToast(result.error, 'error');
+                }
+            }
+        } catch (error) {
+            console.error('Edit error:', error);
+            showToast('Failed to update monitor. Please try again.', 'error');
+        }
+    });
+
+    // Handle edit form cancel
+    cancelEditBtn.addEventListener('click', function() {
+        editForm.style.display = 'none';
+        editForm.style.visibility = 'hidden';
+        form.style.visibility = 'visible';
+        addBtn.style.display = 'block';
+        editFormElement.reset();
+        
+
     });
 
     // Handle delete button clicks

@@ -13,6 +13,7 @@
         {{#if user}}
             <nav class="nav">
                 <span class="user-info">Welcome, {{user.email}}</span>
+                <a href="/settings" class="btn btn-primary" id="settings-btn">Settings</a>
                 <form action="/logout" method="POST" style="display: inline;">
                     <button type="submit" class="btn btn-secondary" id="logout-btn">Logout</button>
                 </form>

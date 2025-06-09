@@ -279,6 +279,78 @@ app.get('/dashboard', checkDb, async (req, res) => {
     }
 });
 
+// Settings route
+app.get('/settings', checkDb, async (req, res) => {
+    if (!req.session.user) {
+        return res.redirect('/login');
+    }
+
+    try {
+        const user = await db.getUserById(req.session.user.id);
+        
+        // Pre-fill notification email with user's email if not set
+        if (!user.notification_email) {
+            user.notification_email = user.email;
+        }
+        
+        res.render('settings', {
+            user: user,
+            title: 'Settings',
+            success: req.session.success || null,
+            errors: req.session.errors || []
+        });
+
+        delete req.session.success;
+        delete req.session.errors;
+    } catch (error) {
+        console.error('Settings error:', error);
+        res.render('settings', {
+            user: req.session.user,
+            title: 'Settings',
+            errors: [{ msg: 'Error loading settings' }]
+        });
+    }
+});
+
+// Update email settings
+app.post('/settings/email', checkDb, async (req, res) => {
+    if (!req.session.user) {
+        return res.redirect('/login');
+    }
+
+    try {
+        const { notificationEmail, enableEmailNotifications } = req.body;
+        const errors = [];
+
+        // Validate notification email if provided
+        if (notificationEmail && notificationEmail.trim() !== '') {
+            if (!isValidEmail(notificationEmail.trim())) {
+                errors.push({ msg: 'Please enter a valid email address' });
+            }
+        }
+
+        if (errors.length > 0) {
+            req.session.errors = errors;
+            return res.redirect('/settings');
+        }
+
+        // Update user email settings
+        await db.updateUserEmailSettings(
+            req.session.user.id,
+            notificationEmail ? notificationEmail.trim() : null,
+            enableEmailNotifications === 'on' ? 1 : 0
+        );
+
+        req.session.success = 'Notification settings saved';
+        res.redirect('/settings');
+
+    } catch (error) {
+        console.error('Email settings update error:', error);
+        req.session.errors = [{ msg: 'Failed to update email settings. Please try again.' }];
+        res.redirect('/settings');
+    }
+});
+
 // Monitor routes
 function isValidUrl(url) {
     try {
@@ -295,7 +367,7 @@ app.post('/monitors', checkDb, async (req, res) => {
     }
 
     try {
-        const { name, url, interval } = req.body;
+        const { name, url, interval, emailNotifications } = req.body;
         const errors = [];
 
         // Validate input
@@ -320,11 +392,13 @@ app.post('/monitors', checkDb, async (req, res) => {
 
         // Create monitor
         const intervalMinutes = parseInt(interval);
+        const emailNotificationsEnabled = emailNotifications === 'on' ? 1 : 0;
         const monitorId = await db.createMonitor(
             req.session.user.id,
             name.trim(),
             url.trim(),
-            intervalMinutes
+            intervalMinutes,
+            emailNotificationsEnabled
         );
 
         // Start monitoring immediately
@@ -337,6 +411,71 @@ app.post('/monitors', checkDb, async (req, res) => {
         console.error('Monitor creation error:', error);
         req.session.errors = [{ msg: 'Failed to create monitor. Please try again.' }];
         res.redirect('/dashboard');
+    }
+});
+
+// Edit monitor route
+app.put('/monitors/:id', checkDb, async (req, res) => {
+    if (!req.session.user) {
+        return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    try {
+        const monitorId = parseInt(req.params.id);
+        const { name, url, interval, emailNotifications } = req.body;
+        
+        if (isNaN(monitorId)) {
+            return res.status(400).json({ error: 'Invalid monitor ID' });
+        }
+
+        // Verify the monitor belongs to the current user
+        const monitor = await db.getMonitorById(monitorId);
+        if (!monitor) {
+            return res.status(404).json({ error: 'Monitor not found' });
+        }
+
+        if (monitor.user_id !== req.session.user.id) {
+            return res.status(403).json({ error: 'Access denied' });
+        }
+
+        // Validate input
+        const errors = [];
+        if (!name || name.trim() === '') {
+            errors.push({ msg: 'Monitor name is required' });
+        }
+        if (!url || url.trim() === '') {
+            errors.push({ msg: 'URL is required' });
+        } else if (!isValidUrl(url.trim())) {
+            errors.push({ msg: 'Please enter a valid URL (http:// or https://)' });
+        }
+        if (!interval || isNaN(parseInt(interval))) {
+            errors.push({ msg: 'Check interval is required' });
+        }
+
+        if (errors.length > 0) {
+            return res.status(400).json({ errors: errors });
+        }
+
+        // Update monitor
+        const intervalMinutes = parseInt(interval);
+        const emailNotificationsEnabled = emailNotifications === 'on' ? 1 : 0;
+        
+        await db.updateMonitor(
+            monitorId,
+            name.trim(),
+            url.trim(), 
+            intervalMinutes,
+            emailNotificationsEnabled
+        );
+
+        res.json({ 
+            success: true, 
+            message: 'Monitor updated successfully' 
+        });
+
+    } catch (error) {
+        console.error('Monitor update error:', error);
+        res.status(500).json({ error: 'Failed to update monitor' });
     }
 });
 
@@ -516,10 +655,29 @@ async function handleStatusChange(monitor, previousStatus, newStatus, responseTi
     }
 
     try {
-        // Get user email
+        // Get user and check email notification preferences
         const user = await db.getUserById(monitor.user_id);
-        if (!user || !user.email) {
-            console.log('No user email found for monitor:', monitor.name);
+        if (!user) {
+            console.log('User not found for monitor:', monitor.name);
+            return;
+        }
+
+        // Check if email notifications are enabled globally
+        if (!user.enable_email_notifications) {
+            console.log(`Email notifications disabled globally for user ${user.email}`);
+            return;
+        }
+
+        // Check if email notifications are enabled for this specific monitor
+        if (!monitor.email_notifications) {
+            console.log(`Email notifications disabled for monitor: ${monitor.name}`);
+            return;
+        }
+
+        // Determine which email to send to
+        const recipientEmail = user.notification_email || user.email;
+        if (!recipientEmail) {
+            console.log('No notification email found for monitor:', monitor.name);
             return;
         }
 
@@ -529,7 +687,7 @@ async function handleStatusChange(monitor, previousStatus, newStatus, responseTi
         
         // Send email notification
         await emailService.sendMonitorAlert(
-            user.email,
+            recipientEmail,
             monitor.name,
             monitor.url,
             newStatus,
@@ -538,7 +696,7 @@ async function handleStatusChange(monitor, previousStatus, newStatus, responseTi
             timestamp
         );
         
-        console.log(`✅ Email notification sent to ${user.email} for monitor ${monitor.name}`);
+        console.log(`✅ Email notification sent to ${recipientEmail} for monitor ${monitor.name}`);
         
     } catch (error) {
         console.error('❌ Failed to send email notification:', error.message);
