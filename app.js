@@ -1,3 +1,6 @@
+// Load environment variables from .env file
+require('dotenv').config();
+
 const express = require('express');
 const { engine } = require('express-handlebars');
 const session = require('express-session');
@@ -6,6 +9,7 @@ const bcrypt = require('bcryptjs');
 const path = require('path');
 const https = require('https');
 const http = require('http');
+const emailService = require('./services/emailService');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -377,6 +381,27 @@ app.delete('/monitors/:id', checkDb, async (req, res) => {
     }
 });
 
+// Test email route
+app.post('/test-email', checkDb, async (req, res) => {
+    if (!req.session.user) {
+        return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    try {
+        await emailService.sendTestEmail(req.session.user.email);
+        res.json({ 
+            success: true, 
+            message: 'Test email sent successfully!' 
+        });
+    } catch (error) {
+        console.error('Test email error:', error);
+        res.status(500).json({ 
+            error: 'Failed to send test email',
+            details: error.message 
+        });
+    }
+});
+
 // Logout route
 app.post('/logout', (req, res) => {
     req.session.destroy((err) => {
@@ -398,6 +423,7 @@ async function performMonitorCheck(monitorId) {
 
         const url = monitor.url;
         const startTime = Date.now();
+        const previousStatus = monitor.status; // Track previous status for email notifications
         
         const requestOptions = {
             timeout: 30000, // 30 second timeout
@@ -408,7 +434,7 @@ async function performMonitorCheck(monitorId) {
 
         const protocol = url.startsWith('https:') ? https : http;
         
-        const request = protocol.get(url, requestOptions, (response) => {
+        const request = protocol.get(url, requestOptions, async (response) => {
             const endTime = Date.now();
             const responseTime = endTime - startTime;
             const statusCode = response.statusCode;
@@ -416,66 +442,106 @@ async function performMonitorCheck(monitorId) {
             const errorMessage = status === 'down' ? `HTTP ${statusCode}` : null;
 
             // Update monitor status
-            db.updateMonitorStatus(monitorId, status, responseTime, statusCode, errorMessage)
-                .then(() => {
-                    // Record check
-                    return db.createMonitorCheck(monitorId, status, responseTime, statusCode, errorMessage);
-                })
-                .then(() => {
-                    console.log(`Monitor ${monitor.name} (${monitorId}): ${status.toUpperCase()} - ${responseTime}ms`);
-                })
-                .catch(err => {
-                    console.error('Error updating monitor status:', err);
-                });
+            try {
+                await db.updateMonitorStatus(monitorId, status, responseTime, statusCode, errorMessage);
+                await db.createMonitorCheck(monitorId, status, responseTime, statusCode, errorMessage);
+                
+                console.log(`Monitor ${monitor.name} (${monitorId}): ${status.toUpperCase()} - ${responseTime}ms`);
+                
+                // Send email notification if status changed
+                await handleStatusChange(monitor, previousStatus, status, responseTime, errorMessage);
+                
+            } catch (err) {
+                console.error('Error updating monitor status:', err);
+            }
 
             response.on('data', () => {
                 // Consume response data to free up memory
             });
         });
 
-        request.on('error', (error) => {
+        request.on('error', async (error) => {
             const endTime = Date.now();
             const responseTime = endTime - startTime;
             const errorMessage = error.message;
 
             // Update monitor status
-            db.updateMonitorStatus(monitorId, 'down', responseTime, null, errorMessage)
-                .then(() => {
-                    // Record check
-                    return db.createMonitorCheck(monitorId, 'down', responseTime, null, errorMessage);
-                })
-                .then(() => {
-                    console.log(`Monitor ${monitor.name} (${monitorId}): DOWN - ${errorMessage}`);
-                })
-                .catch(err => {
-                    console.error('Error updating monitor status:', err);
-                });
+            try {
+                await db.updateMonitorStatus(monitorId, 'down', responseTime, null, errorMessage);
+                await db.createMonitorCheck(monitorId, 'down', responseTime, null, errorMessage);
+                
+                console.log(`Monitor ${monitor.name} (${monitorId}): DOWN - ${errorMessage}`);
+                
+                // Send email notification if status changed
+                await handleStatusChange(monitor, previousStatus, 'down', responseTime, errorMessage);
+                
+            } catch (err) {
+                console.error('Error updating monitor status:', err);
+            }
         });
 
-        request.on('timeout', () => {
+        request.on('timeout', async () => {
             request.destroy();
             const endTime = Date.now();
             const responseTime = endTime - startTime;
             const errorMessage = 'Request timeout';
 
             // Update monitor status
-            db.updateMonitorStatus(monitorId, 'down', responseTime, null, errorMessage)
-                .then(() => {
-                    // Record check
-                    return db.createMonitorCheck(monitorId, 'down', responseTime, null, errorMessage);
-                })
-                .then(() => {
-                    console.log(`Monitor ${monitor.name} (${monitorId}): DOWN - ${errorMessage}`);
-                })
-                .catch(err => {
-                    console.error('Error updating monitor status:', err);
-                });
+            try {
+                await db.updateMonitorStatus(monitorId, 'down', responseTime, null, errorMessage);
+                await db.createMonitorCheck(monitorId, 'down', responseTime, null, errorMessage);
+                
+                console.log(`Monitor ${monitor.name} (${monitorId}): DOWN - ${errorMessage}`);
+                
+                // Send email notification if status changed
+                await handleStatusChange(monitor, previousStatus, 'down', responseTime, errorMessage);
+                
+            } catch (err) {
+                console.error('Error updating monitor status:', err);
+            }
         });
 
         request.setTimeout(30000);
 
     } catch (error) {
         console.error('Error performing monitor check:', error);
+    }
+}
+
+// Handle status change and send email notifications
+async function handleStatusChange(monitor, previousStatus, newStatus, responseTime, errorMessage) {
+    // Only send email if status actually changed
+    if (previousStatus === newStatus) {
+        return;
+    }
+
+    try {
+        // Get user email
+        const user = await db.getUserById(monitor.user_id);
+        if (!user || !user.email) {
+            console.log('No user email found for monitor:', monitor.name);
+            return;
+        }
+
+        const timestamp = new Date().toISOString();
+        
+        console.log(`📧 Status changed for ${monitor.name}: ${previousStatus || 'unknown'} → ${newStatus}`);
+        
+        // Send email notification
+        await emailService.sendMonitorAlert(
+            user.email,
+            monitor.name,
+            monitor.url,
+            newStatus,
+            responseTime,
+            errorMessage,
+            timestamp
+        );
+        
+        console.log(`✅ Email notification sent to ${user.email} for monitor ${monitor.name}`);
+        
+    } catch (error) {
+        console.error('❌ Failed to send email notification:', error.message);
     }
 }
 
