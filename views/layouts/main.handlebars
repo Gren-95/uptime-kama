@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{#if title}}{{title}} - {{/if}}Uptime Kama</title>
+    <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+<header class="header">
+    <div class="container">
+        <h1 class="logo">🚀 Uptime Kama</h1>
+        {{#if user}}
+            <nav class="nav">
+                <span class="user-info">Welcome, {{user.email}}</span>
+                <form action="/logout" method="POST" style="display: inline;">
+                    <button type="submit" class="btn btn-secondary">Logout</button>
+                </form>
+            </nav>
+        {{/if}}
+    </div>
+</header>
+
+<main class="main">
+    <div class="container">
+        {{{body}}}
+    </div>
+</main>
+
+<footer class="footer">
+    <div class="container">
+        <p>&copy; 2024 Uptime Kama. Simple uptime monitoring.</p>
+    </div>
+</footer>
+</body>
+</html>

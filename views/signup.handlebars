@@ -1,0 +1,55 @@
+<div class="auth-container">
+    <div class="auth-form">
+        <h2>Create Account</h2>
+
+        {{#if errors}}
+            <div class="error-messages">
+                {{#each errors}}
+                    <div class="error-message alert-danger">{{this.msg}}</div>
+                {{/each}}
+            </div>
+        {{/if}}
+
+        <form action="/signup" method="POST">
+            <div class="form-group">
+                <label for="email">Email Address</label>
+                <input
+                        type="email"
+                        id="email"
+                        name="email"
+                        placeholder="Enter your email address"
+                        value="{{oldInput.email}}"
+                >
+            </div>
+
+            <div class="form-group">
+                <label for="password">Password</label>
+                <input
+                        type="password"
+                        id="password"
+                        name="password"
+                        placeholder="Enter your password"
+                >
+                <small class="password-requirements">
+                    Password must contain at least 8 characters with uppercase, lowercase, number, and special character.
+                </small>
+            </div>
+
+            <div class="form-group">
+                <label for="confirmPassword">Confirm Password</label>
+                <input
+                        type="password"
+                        id="confirmPassword"
+                        name="confirmPassword"
+                        placeholder="Confirm your password"
+                >
+            </div>
+
+            <button type="submit" class="btn btn-primary">Sign Up</button>
+        </form>
+
+        <div class="auth-links">
+            <p>Already have an account? <a href="/login">Login here</a></p>
+        </div>
+    </div>
+</div>

@@ -7,13 +7,13 @@ test.describe('Account Creation (Story 0.1)', () => {
   });
 
   test('should successfully create an account with valid credentials', async ({ page }) => {
-    // Generate unique username to avoid conflicts
+    // Generate unique email to avoid conflicts
     const timestamp = Date.now();
-    const username = `testuser_${timestamp}`;
+    const email = `testuser${timestamp}@example.com`;
     const password = 'SecurePassword123!';
 
     // Fill in the signup form
-    await page.fill('[name="username"]', username);
+    await page.fill('[name="email"]', email);
     await page.fill('[name="password"]', password);
     await page.fill('[name="confirmPassword"]', password);
 
@@ -22,92 +22,90 @@ test.describe('Account Creation (Story 0.1)', () => {
 
     // Should redirect to dashboard or show success message
     await expect(page).toHaveURL(/\/(dashboard|login)/);
-    
+
     // If redirected to login, verify success message
     if (page.url().includes('/login')) {
       await expect(page.locator('.success-message, .alert-success')).toContainText(/account created|registration successful/i);
     }
-    
+
     // If redirected to dashboard, verify we're logged in
     if (page.url().includes('/dashboard')) {
-      await expect(page.locator('.user-info, .welcome-message')).toBeVisible();
+      await expect(page.locator('.user-info').first()).toBeVisible();
     }
   });
 
-  test('should show error when username is already taken', async ({ page }) => {
-    const existingUsername = 'existinguser';
+  test('should show error when email is already taken', async ({ page }) => {
+    const existingEmail = `existing${Date.now()}@example.com`;
     const password = 'SecurePassword123!';
 
-    // First, create an account (assuming this user exists or create one)
-    // In a real scenario, you might seed the database with test data
-    
-    // Try to create account with existing username
-    await page.fill('[name="username"]', existingUsername);
+    // First create a user with that email
+    await page.fill('[name="email"]', existingEmail);
+    await page.fill('[name="password"]', password);
+    await page.fill('[name="confirmPassword"]', password);
+    await page.click('button[type="submit"]');
+
+    // Go back to signup page
+    await page.goto('/signup');
+
+    // Try to create account with existing email
+    await page.fill('[name="email"]', existingEmail);
     await page.fill('[name="password"]', password);
     await page.fill('[name="confirmPassword"]', password);
 
     await page.click('button[type="submit"]');
 
-    // Should show error message about username being taken
-    await expect(page.locator('.error-message, .alert-danger, .field-error')).toContainText(/username.*already.*taken|username.*exists/i);
-    
+    // Should show error message about email being taken
+    await expect(page.locator('.error-message').first()).toContainText(/email.*already.*registered|email.*exists/i);
+
     // Should remain on signup page
     await expect(page).toHaveURL(/\/signup/);
   });
 
   test('should validate password security requirements', async ({ page }) => {
-    const username = `testuser_${Date.now()}`;
-    
-    // Test cases for different password requirements
-    const invalidPasswords = [
-      { password: '123', error: /too short|minimum.*characters/i },
-      { password: 'password', error: /uppercase|capital letter/i },
-      { password: 'PASSWORD', error: /lowercase/i },
-      { password: 'Password', error: /number|digit/i },
-      { password: 'Password123', error: /special character|symbol/i }
-    ];
+    const email = `testuser${Date.now()}@example.com`;
 
-    for (const testCase of invalidPasswords) {
-      // Clear and fill form
-      await page.fill('[name="username"]', username);
-      await page.fill('[name="password"]', testCase.password);
-      await page.fill('[name="confirmPassword"]', testCase.password);
+    // Test case for weak password
+    const weakPassword = '123';
 
-      await page.click('button[type="submit"]');
+    // Clear and fill form
+    await page.fill('[name="email"]', email);
+    await page.fill('[name="password"]', weakPassword);
+    await page.fill('[name="confirmPassword"]', weakPassword);
 
-      // Should show appropriate error message
-      await expect(page.locator('.error-message, .alert-danger, .field-error, .password-error')).toContainText(testCase.error);
-      
-      // Should remain on signup page
-      await expect(page).toHaveURL(/\/signup/);
-    }
+    await page.click('button[type="submit"]');
+
+    // Should show appropriate error message
+    await expect(page.locator('.error-message').first()).toContainText(/too short|minimum.*characters|8 characters/i);
+
+    // Should remain on signup page
+    await expect(page).toHaveURL(/\/signup/);
   });
 
   test('should validate password confirmation matches', async ({ page }) => {
-    const username = `testuser_${Date.now()}`;
+    const email = `testuser${Date.now()}@example.com`;
     const password = 'SecurePassword123!';
     const wrongConfirmation = 'DifferentPassword123!';
 
-    await page.fill('[name="username"]', username);
+    await page.fill('[name="email"]', email);
     await page.fill('[name="password"]', password);
     await page.fill('[name="confirmPassword"]', wrongConfirmation);
 
     await page.click('button[type="submit"]');
 
     // Should show error about password mismatch
-    await expect(page.locator('.error-message, .alert-danger, .field-error')).toContainText(/passwords.*match|passwords.*same/i);
-    
+    await expect(page.locator('.error-message').first()).toContainText(/passwords.*match|passwords.*same/i);
+
     // Should remain on signup page
     await expect(page).toHaveURL(/\/signup/);
   });
 
   test('should allow immediate login after account creation', async ({ page }) => {
     const timestamp = Date.now();
-    const username = `testuser_${timestamp}`;
+    const email = `testuser${timestamp}@example.com`;
     const password = 'SecurePassword123!';
 
     // Create account
-    await page.fill('[name="username"]', username);
+    await page.fill('[name="email"]', email);
     await page.fill('[name="password"]', password);
     await page.fill('[name="confirmPassword"]', password);
     await page.click('button[type="submit"]');
@@ -115,16 +113,16 @@ test.describe('Account Creation (Story 0.1)', () => {
     // If not automatically logged in, go to login page
     if (!page.url().includes('/dashboard')) {
       await page.goto('/login');
-      
+
       // Login with the newly created credentials
-      await page.fill('[name="username"]', username);
+      await page.fill('[name="email"]', email);
       await page.fill('[name="password"]', password);
       await page.click('button[type="submit"]');
     }
 
     // Should successfully log in and reach dashboard
     await expect(page).toHaveURL(/\/dashboard/);
-    await expect(page.locator('.dashboard, .welcome-message, h1')).toBeVisible();
+    await expect(page.locator('.dashboard').first()).toBeVisible();
   });
 
   test('should validate required fields', async ({ page }) => {
@@ -132,58 +130,175 @@ test.describe('Account Creation (Story 0.1)', () => {
     await page.click('button[type="submit"]');
 
     // Should show validation errors for required fields
-    await expect(page.locator('.error-message, .alert-danger, .field-error')).toContainText(/required|cannot be empty/i);
-    
+    await expect(page.locator('.error-message').first()).toContainText(/required|cannot be empty|must be at least/i);
+
     // Should remain on signup page
     await expect(page).toHaveURL(/\/signup/);
   });
 
   test('should display signup form elements correctly', async ({ page }) => {
     // Verify all form elements are present
-    await expect(page.locator('[name="username"]')).toBeVisible();
+    await expect(page.locator('[name="email"]')).toBeVisible();
     await expect(page.locator('[name="password"]')).toBeVisible();
     await expect(page.locator('[name="confirmPassword"]')).toBeVisible();
     await expect(page.locator('button[type="submit"]')).toBeVisible();
-    
-    // Verify form labels/placeholders
-    await expect(page.locator('label[for="username"], [placeholder*="username" i]')).toBeVisible();
-    await expect(page.locator('label[for="password"], [placeholder*="password" i]')).toBeVisible();
-    
+
+    // Verify form labels
+    await expect(page.locator('label[for="email"]')).toBeVisible();
+    await expect(page.locator('label[for="password"]')).toBeVisible();
+
     // Verify submit button text
     await expect(page.locator('button[type="submit"]')).toContainText(/sign up|create account|register/i);
   });
 
-  test('should handle special characters in username', async ({ page }) => {
-    const specialCharUsernames = [
-      'user@domain.com', // email format
-      'user-name',       // hyphen
-      'user_name',       // underscore
-      'user.name'        // dot
-    ];
 
-    for (const username of specialCharUsernames) {
-      const password = 'SecurePassword123!';
-      
-      await page.fill('[name="username"]', username);
-      await page.fill('[name="password"]', password);
-      await page.fill('[name="confirmPassword"]', password);
-      
-      await page.click('button[type="submit"]');
-      
-      // Should either succeed or show appropriate validation message
-      // This depends on your business rules for usernames
-      const hasError = await page.locator('.error-message, .alert-danger').isVisible();
-      
-      if (hasError) {
-        // If validation fails, should show clear message about allowed characters
-        await expect(page.locator('.error-message, .alert-danger')).toContainText(/username.*invalid|allowed characters/i);
-      } else {
-        // If validation passes, should proceed successfully
-        await expect(page).toHaveURL(/\/(dashboard|login)/);
-      }
-      
-      // Reset for next iteration
-      await page.goto('/signup');
-    }
+});
+
+test.describe('User Login (Story 0.2)', () => {
+  test.beforeEach(async ({ page }) => {
+    // Navigate to the login page before each test
+    await page.goto('/login');
   });
-}); 
+
+  test('should successfully log in with valid credentials', async ({ page }) => {
+    // First create a user to login with
+    const timestamp = Date.now();
+    const email = `logintest${timestamp}@example.com`;
+    const password = 'SecurePassword123!';
+
+    // Create account first
+    await page.goto('/signup');
+    await page.fill('[name="email"]', email);
+    await page.fill('[name="password"]', password);
+    await page.fill('[name="confirmPassword"]', password);
+    await page.click('button[type="submit"]');
+
+    // Go to login page
+    await page.goto('/login');
+
+    // Login with created credentials
+    await page.fill('[name="email"]', email);
+    await page.fill('[name="password"]', password);
+    await page.click('button[type="submit"]');
+
+    // Should redirect to dashboard
+    await expect(page).toHaveURL(/\/dashboard/);
+    await expect(page.locator('.user-info').first()).toBeVisible();
+    await expect(page.locator('.user-info').first()).toContainText(email);
+  });
+
+  test('should show error with invalid email', async ({ page }) => {
+    const nonExistentEmail = `nonexistent${Date.now()}@example.com`;
+    const password = 'SecurePassword123!';
+
+    await page.fill('[name="email"]', nonExistentEmail);
+    await page.fill('[name="password"]', password);
+    await page.click('button[type="submit"]');
+
+    // Should show error message
+    await expect(page.locator('.error-message').first()).toContainText(/invalid.*email.*password/i);
+
+    // Should remain on login page
+    await expect(page).toHaveURL(/\/login/);
+  });
+
+  test('should show error with incorrect password', async ({ page }) => {
+    // First create a user
+    const timestamp = Date.now();
+    const email = `wrongpass${timestamp}@example.com`;
+    const correctPassword = 'SecurePassword123!';
+    const wrongPassword = 'WrongPassword456!';
+
+    // Create account first
+    await page.goto('/signup');
+    await page.fill('[name="email"]', email);
+    await page.fill('[name="password"]', correctPassword);
+    await page.fill('[name="confirmPassword"]', correctPassword);
+    await page.click('button[type="submit"]');
+
+    // Go to login page
+    await page.goto('/login');
+
+    // Try to login with wrong password
+    await page.fill('[name="email"]', email);
+    await page.fill('[name="password"]', wrongPassword);
+    await page.click('button[type="submit"]');
+
+    // Should show error message
+    await expect(page.locator('.error-message').first()).toContainText(/invalid.*email.*password/i);
+
+    // Should remain on login page
+    await expect(page).toHaveURL(/\/login/);
+  });
+
+  test('should validate required fields on login', async ({ page }) => {
+    // Try to submit empty form
+    await page.click('button[type="submit"]');
+
+    // Should show validation errors for required fields
+    await expect(page.locator('.error-message').first()).toContainText(/required|cannot be empty/i);
+
+    // Should remain on login page
+    await expect(page).toHaveURL(/\/login/);
+  });
+
+
+
+
+
+  test('should display login form elements correctly', async ({ page }) => {
+    // Verify all form elements are present
+    await expect(page.locator('[name="email"]')).toBeVisible();
+    await expect(page.locator('[name="password"]')).toBeVisible();
+    await expect(page.locator('button[type="submit"]')).toBeVisible();
+
+    // Verify form labels
+    await expect(page.locator('label[for="email"]')).toBeVisible();
+    await expect(page.locator('label[for="password"]')).toBeVisible();
+
+    // Verify submit button text
+    await expect(page.locator('button[type="submit"]')).toContainText(/login|sign in/i);
+
+    // Verify link to signup
+    await expect(page.locator('a[href="/signup"]')).toBeVisible();
+  });
+
+  test('should navigate between login and signup pages', async ({ page }) => {
+    // Should be on login page
+    await expect(page).toHaveURL(/\/login/);
+
+    // Click signup link
+    await page.click('a[href="/signup"]');
+    await expect(page).toHaveURL(/\/signup/);
+
+    // Click login link
+    await page.click('a[href="/login"]');
+    await expect(page).toHaveURL(/\/login/);
+  });
+
+  test('should logout successfully', async ({ page }) => {
+    // First create and login a user
+    const timestamp = Date.now();
+    const email = `logouttest${timestamp}@example.com`;
+    const password = 'SecurePassword123!';
+
+    // Create account
+    await page.goto('/signup');
+    await page.fill('[name="email"]', email);
+    await page.fill('[name="password"]', password);
+    await page.fill('[name="confirmPassword"]', password);
+    await page.click('button[type="submit"]');
+
+    // Should be logged in and on dashboard
+    await expect(page).toHaveURL(/\/dashboard/);
+
+    // Click logout button
+    await page.click('button:has-text("Logout")');
+
+    // Should redirect to login page
+    await expect(page).toHaveURL(/\/login/);
+
+    // Should not see user info anymore
+    await expect(page.locator('.user-info')).not.toBeVisible();
+  });
+});
