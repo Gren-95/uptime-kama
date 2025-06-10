@@ -1,33 +1,49 @@
-const sgMail = require('@sendgrid/mail');
+const nodemailer = require('nodemailer');
 
 // Check if we're running on localhost or in test mode
 const isLocalhost = process.env.NODE_ENV === 'development' || 
                    process.env.NODE_ENV === 'test' || 
-                   !process.env.NODE_ENV ||
-                   !process.env.SENDGRID_API_KEY ||
+                   (!process.env.NODE_ENV && !process.env.SMTP_HOST && !process.env.SMTP_USER) ||
                    process.env.PLAYWRIGHT_TEST === 'true';
 
 // Test email override - set this to your email for testing
 const TEST_EMAIL_OVERRIDE = 'prii.sander@gmail.com';
 
-// Configuration for SendGrid sender
-const DEFAULT_FROM_EMAIL = process.env.EMAIL_FROM || process.env.SENDGRID_FROM_EMAIL || 'prii.sander@gmail.com';
+// Configuration for SMTP sender
+const DEFAULT_FROM_EMAIL = process.env.EMAIL_FROM || process.env.SMTP_FROM_EMAIL || 'up@up.bee-srv.me';
 const DEFAULT_FROM_NAME = process.env.EMAIL_FROM_NAME || 'Status Monitor';
 
-// Initialize SendGrid
-function initializeSendGrid() {
-    if (!process.env.SENDGRID_API_KEY) {
-        console.warn('⚠️  SendGrid not configured. Set SENDGRID_API_KEY environment variable.');
-        console.warn('📧 Email notifications will not work without a valid SendGrid API key.');
+// SMTP Configuration
+const SMTP_CONFIG = {
+    host: process.env.SMTP_HOST,
+    port: parseInt(process.env.SMTP_PORT) || 587,
+    secure: process.env.SMTP_SECURE === 'true' || parseInt(process.env.SMTP_PORT) === 465,
+    auth: {
+        user: process.env.SMTP_USER,
+        pass: process.env.SMTP_PASS
+    }
+};
+
+let transporter = null;
+
+// Initialize SMTP transporter
+function initializeSMTP() {
+    if (!SMTP_CONFIG.host || !SMTP_CONFIG.auth.user || !SMTP_CONFIG.auth.pass) {
+        console.warn('⚠️  SMTP not configured. Set SMTP_HOST, SMTP_USER, and SMTP_PASS environment variables.');
+        console.warn('📧 Email notifications will not work without valid SMTP configuration.');
         return false;
     }
 
     try {
-        sgMail.setApiKey(process.env.SENDGRID_API_KEY);
-        console.log(`📧 SendGrid initialized with API key: ${process.env.SENDGRID_API_KEY.substring(0, 10)}...`);
+        transporter = nodemailer.createTransport(SMTP_CONFIG);
+        console.log(`📧 SMTP initialized:`);
+        console.log(`   Host: ${SMTP_CONFIG.host}`);
+        console.log(`   Port: ${SMTP_CONFIG.port} (${SMTP_CONFIG.secure ? 'SSL/TLS' : 'STARTTLS'})`);
+        console.log(`   User: ${SMTP_CONFIG.auth.user}`);
+        console.log(`   From: ${DEFAULT_FROM_NAME} <${DEFAULT_FROM_EMAIL}>`);
         return true;
     } catch (error) {
-        console.error('❌ Failed to initialize SendGrid:', error.message);
+        console.error('❌ Failed to initialize SMTP:', error.message);
         return false;
     }
 }
@@ -64,19 +80,16 @@ async function sendEmail(to, subject, text, html = null) {
             return result;
         }
 
-        console.log('📧 Using REAL SendGrid service for production');
+        console.log('📧 Using REAL SMTP service for production');
         
-        // Initialize SendGrid if not already done
-        if (!initializeSendGrid()) {
-            throw new Error('SendGrid not configured properly');
+        // Initialize SMTP if not already done
+        if (!initializeSMTP()) {
+            throw new Error('SMTP not configured properly');
         }
 
         const messageData = {
+            from: `${DEFAULT_FROM_NAME} <${DEFAULT_FROM_EMAIL}>`,
             to: finalTo,
-            from: {
-                email: DEFAULT_FROM_EMAIL,
-                name: DEFAULT_FROM_NAME
-            },
             subject: subject,
             text: text
         };
@@ -88,43 +101,45 @@ async function sendEmail(to, subject, text, html = null) {
         console.log(`📤 Sending email from ${DEFAULT_FROM_NAME} <${DEFAULT_FROM_EMAIL}> to ${finalTo}`);
         console.log(`Subject: ${subject}`);
 
-        const result = await sgMail.send(messageData);
+        const result = await transporter.sendMail(messageData);
         
         console.log(`✅ Email sent successfully!`);
-        console.log(`Status Code: ${result[0].statusCode}`);
-        console.log(`Message ID: ${result[0].headers['x-message-id'] || 'Not provided'}`);
+        console.log(`Message ID: ${result.messageId}`);
+        console.log(`Response: ${result.response}`);
         
         return {
-            id: result[0].headers['x-message-id'] || `sendgrid-${Date.now()}`,
-            message: 'Queued. Thank you.',
-            statusCode: result[0].statusCode
+            id: result.messageId || `smtp-${Date.now()}`,
+            message: 'Email sent successfully',
+            statusCode: 250
         };
 
     } catch (error) {
-        console.error('❌ SendGrid email failed:');
+        console.error('❌ SMTP email failed:');
         console.error(`Error: ${error.message}`);
 
-        if (error.response && error.response.body) {
-            console.error('SendGrid API Response:', JSON.stringify(error.response.body, null, 2));
+        if (error.code) {
+            console.error(`Error Code: ${error.code}`);
         }
 
-        // Enhanced error handling for common SendGrid issues
-        if (
-            error.message.includes('does not match a verified Sender Identity') ||
-            (error.response && JSON.stringify(error.response.body).includes('does not match a verified Sender Identity'))
-        ) {
-            console.log('\n🔧 SENDER VERIFICATION NEEDED:');
-            console.log('1. Go to: https://app.sendgrid.com/settings/sender_auth');
-            console.log('2. Click "Create a Single Sender" or verify your domain.');
-            console.log(`3. Verify ${DEFAULT_FROM_EMAIL} as a sender.`);
-            console.log('4. Check your email inbox for verification.');
-            console.log('5. Try sending again after verification.');
+        // Enhanced error handling for common SMTP issues
+        if (error.code === 'EAUTH' || error.message.includes('authentication failed')) {
+            console.log('\n🔧 AUTHENTICATION ERROR:');
+            console.log('1. Check your SMTP username and password');
+            console.log('2. Verify your Mailgun domain is active');
+            console.log('3. Check if your Mailgun API key is correct');
+            console.log('4. Make sure your IP is not blocked');
+        } else if (error.code === 'ECONNECTION' || error.message.includes('connection')) {
+            console.log('\n🔧 CONNECTION ERROR:');
+            console.log('1. Check your internet connection');
+            console.log('2. Verify SMTP host and port settings');
+            console.log('3. Check if firewall is blocking the connection');
+            console.log('4. Try different ports: 587, 465, 25, or 2525');
         } else {
             console.log('\n💡 TROUBLESHOOTING TIPS:');
-            console.log('- Check if the "from" address is verified in SendGrid.');
-            console.log('- Check recipient spam folder.');
-            console.log('- Check SendGrid activity: https://app.sendgrid.com/email_activity');
-            console.log('- If using free SendGrid account, verify Single Sender or Domain Authentication.');
+            console.log('- Check SMTP configuration settings');
+            console.log('- Verify the "from" address is allowed by your SMTP provider');
+            console.log('- Check recipient spam folder');
+            console.log('- Review Mailgun logs for more details');
         }
         
         throw error;
@@ -204,16 +219,18 @@ Uptime Kama Team
 
 // Test email function
 async function sendTestEmail(userEmail) {
-    const subject = '✅ Uptime Kama - Email Notifications Test (SendGrid)';
+    const subject = '✅ Uptime Kama - Email Notifications Test (SMTP)';
     const text = `
 Hello!
 
-This is a test email from Uptime Kama to confirm that SendGrid email notifications are working correctly.
+This is a test email from Uptime Kama to confirm that SMTP email notifications are working correctly.
 
-Email Provider: SendGrid
+Email Provider: SMTP (Mailgun)
+SMTP Host: ${SMTP_CONFIG.host}
+SMTP Port: ${SMTP_CONFIG.port} (${SMTP_CONFIG.secure ? 'SSL/TLS' : 'STARTTLS'})
 From Email: ${DEFAULT_FROM_EMAIL}
 From Name: ${DEFAULT_FROM_NAME}
-Mode: ${isLocalhost ? 'Development (Mock)' : 'Production (Real SendGrid)'}
+Mode: ${isLocalhost ? 'Development (Mock)' : 'Production (Real SMTP)'}
 
 If you received this email, your notification settings are configured properly.
 
@@ -226,7 +243,7 @@ Uptime Kama Team
 <html>
 <head>
     <meta charset="UTF-8">
-    <title>SendGrid Test Email</title>
+    <title>SMTP Test Email</title>
     <style>
         body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
         .container { max-width: 600px; margin: 0 auto; padding: 20px; }
@@ -240,19 +257,21 @@ Uptime Kama Team
 <body>
     <div class="container">
         <div class="header">
-            <div class="logo">📧 SendGrid</div>
+            <div class="logo">📧 SMTP</div>
             <h2>✅ Test Email Success</h2>
         </div>
         <div class="content">
             <h3>Hello!</h3>
-            <p>This is a test email from <strong>Uptime Kama</strong> to confirm that SendGrid email notifications are working correctly.</p>
+            <p>This is a test email from <strong>Uptime Kama</strong> to confirm that SMTP email notifications are working correctly.</p>
             
             <div class="details">
                 <h4>Configuration:</h4>
-                <p><strong>Email Provider:</strong> SendGrid</p>
+                <p><strong>Email Provider:</strong> SMTP (Mailgun)</p>
+                <p><strong>SMTP Host:</strong> ${SMTP_CONFIG.host}</p>
+                <p><strong>SMTP Port:</strong> ${SMTP_CONFIG.port} (${SMTP_CONFIG.secure ? 'SSL/TLS' : 'STARTTLS'})</p>
                 <p><strong>From Email:</strong> ${DEFAULT_FROM_EMAIL}</p>
                 <p><strong>From Name:</strong> ${DEFAULT_FROM_NAME}</p>
-                <p><strong>Mode:</strong> ${isLocalhost ? 'Development (Mock)' : 'Production (Real SendGrid)'}</p>
+                <p><strong>Mode:</strong> ${isLocalhost ? 'Development (Mock)' : 'Production (Real SMTP)'}</p>
                 <p><strong>Timestamp:</strong> ${new Date().toISOString()}</p>
             </div>
             
@@ -260,7 +279,7 @@ Uptime Kama Team
             <p>You're all set to receive monitor alerts!</p>
         </div>
         <div class="footer">
-            This test email was sent by Uptime Kuma monitoring system using SendGrid API.
+            This test email was sent by Uptime Kama monitoring system using SMTP.
         </div>
     </div>
 </body>

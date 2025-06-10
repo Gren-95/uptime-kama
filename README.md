@@ -42,8 +42,24 @@ Create a `.env` file in the root directory:
 PORT=3000
 SESSION_SECRET=your-session-secret-key
 
-# Email Configuration (Optional)
-MAILGUN_DOMAIN=your-mailgun-domain
-MAILGUN_API_KEY=your-mailgun-api-key
-FROM_EMAIL=noreply@yourdomain.com
+# SMTP Email Configuration (Optional)
+SMTP_HOST=smtp.eu.mailgun.org
+SMTP_PORT=587
+SMTP_SECURE=false
+SMTP_USER=up@up.bee-srv.me
+SMTP_PASS=your-smtp-password
+EMAIL_FROM=up@up.bee-srv.me
+EMAIL_FROM_NAME=Status Monitor
+```
+
+### Testing SMTP Configuration
+
+To test your SMTP email configuration:
+
+```bash
+# Test with default email
+npm run test:smtp
+
+# Test with specific email
+node test-smtp.js your-email@example.com
 ```

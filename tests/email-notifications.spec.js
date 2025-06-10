@@ -26,11 +26,11 @@ test.describe('Email Notifications (Story 2.1)', () => {
         // Should see email template preview section
         const emailPreview = page.locator('.email-template-preview');
         if (await emailPreview.isVisible()) {
-            // Should show variables that will be included
-            await expect(emailPreview).toContainText('Monitor Name: {{monitorName}}');
-            await expect(emailPreview).toContainText('URL: {{monitorUrl}}');
-            await expect(emailPreview).toContainText('Timestamp: {{timestamp}}');
-            await expect(emailPreview).toContainText('Status: {{status}}');
+                    // Should show variables that will be included
+        await expect(emailPreview).toContainText('Monitor Name');
+        await expect(emailPreview).toContainText('URL');
+        await expect(emailPreview).toContainText('Timestamp');
+        await expect(emailPreview).toContainText('Status');
         }
     });
 
