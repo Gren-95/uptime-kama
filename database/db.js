@@ -42,6 +42,8 @@ function createTables() {
                                                  id INTEGER PRIMARY KEY AUTOINCREMENT,
                                                  email TEXT UNIQUE NOT NULL,
                                                  password TEXT NOT NULL,
+                                                 notification_email TEXT,
+                                                 enable_email_notifications INTEGER DEFAULT 1,
                                                  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                                                  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
             )
@@ -54,6 +56,7 @@ function createTables() {
                                                    name TEXT NOT NULL,
                                                    url TEXT NOT NULL,
                                                    interval_minutes INTEGER NOT NULL DEFAULT 5,
+                                                   email_notifications INTEGER DEFAULT 1,
                                                    status TEXT DEFAULT 'unknown',
                                                    last_check DATETIME,
                                                    response_time INTEGER,
@@ -136,6 +139,19 @@ function getUserByEmail(email) {
     });
 }
 
+function getUserById(userId) {
+    return new Promise((resolve, reject) => {
+        const sql = 'SELECT * FROM users WHERE id = ?';
+        db.get(sql, [userId], (err, row) => {
+            if (err) {
+                reject(err);
+                return;
+            }
+            resolve(row);
+        });
+    });
+}
+
 function deleteUser(email) {
     return new Promise((resolve, reject) => {
         const sql = 'DELETE FROM users WHERE email = ?';
@@ -166,10 +182,10 @@ function close() {
 }
 
 // Monitor-related functions
-function createMonitor(userId, name, url, intervalMinutes) {
+function createMonitor(userId, name, url, intervalMinutes, emailNotifications = 1) {
     return new Promise((resolve, reject) => {
-        const sql = 'INSERT INTO monitors (user_id, name, url, interval_minutes) VALUES (?, ?, ?, ?)';
-        db.run(sql, [userId, name, url, intervalMinutes], function(err) {
+        const sql = 'INSERT INTO monitors (user_id, name, url, interval_minutes, email_notifications) VALUES (?, ?, ?, ?, ?)';
+        db.run(sql, [userId, name, url, intervalMinutes, emailNotifications], function(err) {
             if (err) {
                 reject(err);
                 return;
@@ -249,11 +265,46 @@ function deleteMonitor(monitorId, userId) {
     });
 }
 
+function updateMonitor(monitorId, name, url, intervalMinutes, emailNotifications) {
+    return new Promise((resolve, reject) => {
+        const sql = `
+            UPDATE monitors 
+            SET name = ?, url = ?, interval_minutes = ?, email_notifications = ?, updated_at = CURRENT_TIMESTAMP 
+            WHERE id = ?
+        `;
+        db.run(sql, [name, url, intervalMinutes, emailNotifications, monitorId], function(err) {
+            if (err) {
+                reject(err);
+                return;
+            }
+            resolve(this.changes);
+        });
+    });
+}
+
+function updateUserEmailSettings(userId, notificationEmail, enableEmailNotifications) {
+    return new Promise((resolve, reject) => {
+        const sql = `
+            UPDATE users 
+            SET notification_email = ?, enable_email_notifications = ?, updated_at = CURRENT_TIMESTAMP 
+            WHERE id = ?
+        `;
+        db.run(sql, [notificationEmail, enableEmailNotifications, userId], function(err) {
+            if (err) {
+                reject(err);
+                return;
+            }
+            resolve(this.changes);
+        });
+    });
+}
+
 module.exports = {
     initialize,
     getDatabase,
     createUser,
     getUserByEmail,
+    getUserById,
     deleteUser,
     close,
     createMonitor,
@@ -261,5 +312,7 @@ module.exports = {
     getMonitorById,
     updateMonitorStatus,
     createMonitorCheck,
-    deleteMonitor
+    deleteMonitor,
+    updateMonitor,
+    updateUserEmailSettings
 };

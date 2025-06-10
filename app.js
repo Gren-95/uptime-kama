@@ -1,3 +1,6 @@
+// Load environment variables from .env file
+require('dotenv').config();
+
 const express = require('express');
 const { engine } = require('express-handlebars');
 const session = require('express-session');
@@ -6,6 +9,7 @@ const bcrypt = require('bcryptjs');
 const path = require('path');
 const https = require('https');
 const http = require('http');
+const emailService = require('./services/emailService');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -275,6 +279,88 @@ app.get('/dashboard', checkDb, async (req, res) => {
     }
 });
 
+// Settings route
+app.get('/settings', checkDb, async (req, res) => {
+    if (!req.session.user) {
+        return res.redirect('/login');
+    }
+
+    try {
+        const user = await db.getUserById(req.session.user.id);
+        
+        // Pre-fill notification email with user's email if not set
+        if (!user.notification_email) {
+            user.notification_email = user.email;
+        }
+        
+        res.render('settings', {
+            user: user,
+            title: 'Settings',
+            success: req.session.success || null,
+            errors: req.session.errors || [],
+            // Template preview variables - showing literal template syntax
+            monitorNameTemplate: '{{monitorName}}',
+            monitorUrlTemplate: '{{monitorUrl}}',
+            statusTemplate: '{{status}}',
+            timestampTemplate: '{{timestamp}}'
+        });
+
+        delete req.session.success;
+        delete req.session.errors;
+    } catch (error) {
+        console.error('Settings error:', error);
+        res.render('settings', {
+            user: req.session.user,
+            title: 'Settings',
+            errors: [{ msg: 'Error loading settings' }],
+            // Template preview variables - showing literal template syntax
+            monitorNameTemplate: '{{monitorName}}',
+            monitorUrlTemplate: '{{monitorUrl}}',
+            statusTemplate: '{{status}}',
+            timestampTemplate: '{{timestamp}}'
+        });
+    }
+});
+
+// Update email settings
+app.post('/settings/email', checkDb, async (req, res) => {
+    if (!req.session.user) {
+        return res.redirect('/login');
+    }
+
+    try {
+        const { notificationEmail, enableEmailNotifications } = req.body;
+        const errors = [];
+
+        // Validate notification email if provided
+        if (notificationEmail && notificationEmail.trim() !== '') {
+            if (!isValidEmail(notificationEmail.trim())) {
+                errors.push({ msg: 'Please enter a valid email address' });
+            }
+        }
+
+        if (errors.length > 0) {
+            req.session.errors = errors;
+            return res.redirect('/settings');
+        }
+
+        // Update user email settings
+        await db.updateUserEmailSettings(
+            req.session.user.id,
+            notificationEmail ? notificationEmail.trim() : null,
+            enableEmailNotifications === 'on' ? 1 : 0
+        );
+
+        req.session.success = 'Notification settings saved';
+        res.redirect('/settings');
+
+    } catch (error) {
+        console.error('Email settings update error:', error);
+        req.session.errors = [{ msg: 'Failed to update email settings. Please try again.' }];
+        res.redirect('/settings');
+    }
+});
+
 // Monitor routes
 function isValidUrl(url) {
     try {
@@ -291,7 +377,7 @@ app.post('/monitors', checkDb, async (req, res) => {
     }
 
     try {
-        const { name, url, interval } = req.body;
+        const { name, url, interval, emailNotifications } = req.body;
         const errors = [];
 
         // Validate input
@@ -316,15 +402,18 @@ app.post('/monitors', checkDb, async (req, res) => {
 
         // Create monitor
         const intervalMinutes = parseInt(interval);
+        const emailNotificationsEnabled = emailNotifications === 'on' ? 1 : 0;
         const monitorId = await db.createMonitor(
             req.session.user.id,
             name.trim(),
             url.trim(),
-            intervalMinutes
+            intervalMinutes,
+            emailNotificationsEnabled
         );
 
-        // Start monitoring immediately
+        // Start monitoring immediately and set up recurring checks
         performMonitorCheck(monitorId);
+        setupMonitorInterval(monitorId, intervalMinutes);
 
         req.session.success = 'Monitor added successfully and monitoring started!';
         res.redirect('/dashboard');
@@ -333,6 +422,74 @@ app.post('/monitors', checkDb, async (req, res) => {
         console.error('Monitor creation error:', error);
         req.session.errors = [{ msg: 'Failed to create monitor. Please try again.' }];
         res.redirect('/dashboard');
+    }
+});
+
+// Edit monitor route
+app.put('/monitors/:id', checkDb, async (req, res) => {
+    if (!req.session.user) {
+        return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    try {
+        const monitorId = parseInt(req.params.id);
+        const { name, url, interval, emailNotifications } = req.body;
+        
+        if (isNaN(monitorId)) {
+            return res.status(400).json({ error: 'Invalid monitor ID' });
+        }
+
+        // Verify the monitor belongs to the current user
+        const monitor = await db.getMonitorById(monitorId);
+        if (!monitor) {
+            return res.status(404).json({ error: 'Monitor not found' });
+        }
+
+        if (monitor.user_id !== req.session.user.id) {
+            return res.status(403).json({ error: 'Access denied' });
+        }
+
+        // Validate input
+        const errors = [];
+        if (!name || name.trim() === '') {
+            errors.push({ msg: 'Monitor name is required' });
+        }
+        if (!url || url.trim() === '') {
+            errors.push({ msg: 'URL is required' });
+        } else if (!isValidUrl(url.trim())) {
+            errors.push({ msg: 'Please enter a valid URL (http:// or https://)' });
+        }
+        if (!interval || isNaN(parseInt(interval))) {
+            errors.push({ msg: 'Check interval is required' });
+        }
+
+        if (errors.length > 0) {
+            return res.status(400).json({ errors: errors });
+        }
+
+        // Update monitor
+        const intervalMinutes = parseInt(interval);
+        const emailNotificationsEnabled = emailNotifications === 'on' ? 1 : 0;
+        
+        await db.updateMonitor(
+            monitorId,
+            name.trim(),
+            url.trim(), 
+            intervalMinutes,
+            emailNotificationsEnabled
+        );
+
+        // Update monitoring interval if it changed
+        setupMonitorInterval(monitorId, intervalMinutes);
+
+        res.json({ 
+            success: true, 
+            message: 'Monitor updated successfully' 
+        });
+
+    } catch (error) {
+        console.error('Monitor update error:', error);
+        res.status(500).json({ error: 'Failed to update monitor' });
     }
 });
 
@@ -359,7 +516,8 @@ app.delete('/monitors/:id', checkDb, async (req, res) => {
             return res.status(403).json({ error: 'Access denied' });
         }
 
-        // Delete the monitor
+        // Clear monitoring interval and delete the monitor
+        clearMonitorInterval(monitorId);
         const deletedCount = await db.deleteMonitor(monitorId, req.session.user.id);
         
         if (deletedCount === 0) {
@@ -377,6 +535,27 @@ app.delete('/monitors/:id', checkDb, async (req, res) => {
     }
 });
 
+// Test email route
+app.post('/test-email', checkDb, async (req, res) => {
+    if (!req.session.user) {
+        return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    try {
+        await emailService.sendTestEmail(req.session.user.email);
+        res.json({ 
+            success: true, 
+            message: 'Test email sent successfully!' 
+        });
+    } catch (error) {
+        console.error('Test email error:', error);
+        res.status(500).json({ 
+            error: 'Failed to send test email',
+            details: error.message 
+        });
+    }
+});
+
 // Logout route
 app.post('/logout', (req, res) => {
     req.session.destroy((err) => {
@@ -386,6 +565,35 @@ app.post('/logout', (req, res) => {
         res.redirect('/login');
     });
 });
+
+// Store monitor intervals so they can be cleared
+const monitorIntervals = new Map();
+
+// Set up monitoring interval for a specific monitor
+function setupMonitorInterval(monitorId, intervalMinutes) {
+    // Clear existing interval if it exists
+    if (monitorIntervals.has(monitorId)) {
+        clearInterval(monitorIntervals.get(monitorId));
+    }
+    
+    // Set up new interval
+    const intervalMs = intervalMinutes * 60 * 1000;
+    const intervalId = setInterval(() => {
+        performMonitorCheck(monitorId);
+    }, intervalMs);
+    
+    monitorIntervals.set(monitorId, intervalId);
+    console.log(`Set up monitoring interval for monitor ${monitorId}: every ${intervalMinutes} minutes`);
+}
+
+// Clear monitoring interval for a specific monitor
+function clearMonitorInterval(monitorId) {
+    if (monitorIntervals.has(monitorId)) {
+        clearInterval(monitorIntervals.get(monitorId));
+        monitorIntervals.delete(monitorId);
+        console.log(`Cleared monitoring interval for monitor ${monitorId}`);
+    }
+}
 
 // Monitoring functionality
 async function performMonitorCheck(monitorId) {
@@ -398,6 +606,7 @@ async function performMonitorCheck(monitorId) {
 
         const url = monitor.url;
         const startTime = Date.now();
+        const previousStatus = monitor.status; // Track previous status for email notifications
         
         const requestOptions = {
             timeout: 30000, // 30 second timeout
@@ -408,7 +617,7 @@ async function performMonitorCheck(monitorId) {
 
         const protocol = url.startsWith('https:') ? https : http;
         
-        const request = protocol.get(url, requestOptions, (response) => {
+        const request = protocol.get(url, requestOptions, async (response) => {
             const endTime = Date.now();
             const responseTime = endTime - startTime;
             const statusCode = response.statusCode;
@@ -416,66 +625,126 @@ async function performMonitorCheck(monitorId) {
             const errorMessage = status === 'down' ? `HTTP ${statusCode}` : null;
 
             // Update monitor status
-            db.updateMonitorStatus(monitorId, status, responseTime, statusCode, errorMessage)
-                .then(() => {
-                    // Record check
-                    return db.createMonitorCheck(monitorId, status, responseTime, statusCode, errorMessage);
-                })
-                .then(() => {
-                    console.log(`Monitor ${monitor.name} (${monitorId}): ${status.toUpperCase()} - ${responseTime}ms`);
-                })
-                .catch(err => {
-                    console.error('Error updating monitor status:', err);
-                });
+            try {
+                await db.updateMonitorStatus(monitorId, status, responseTime, statusCode, errorMessage);
+                await db.createMonitorCheck(monitorId, status, responseTime, statusCode, errorMessage);
+                
+                console.log(`Monitor ${monitor.name} (${monitorId}): ${status.toUpperCase()} - ${responseTime}ms`);
+                
+                // Send email notification if status changed
+                await handleStatusChange(monitor, previousStatus, status, responseTime, errorMessage);
+                
+            } catch (err) {
+                console.error('Error updating monitor status:', err);
+            }
 
             response.on('data', () => {
                 // Consume response data to free up memory
             });
         });
 
-        request.on('error', (error) => {
+        request.on('error', async (error) => {
             const endTime = Date.now();
             const responseTime = endTime - startTime;
             const errorMessage = error.message;
 
             // Update monitor status
-            db.updateMonitorStatus(monitorId, 'down', responseTime, null, errorMessage)
-                .then(() => {
-                    // Record check
-                    return db.createMonitorCheck(monitorId, 'down', responseTime, null, errorMessage);
-                })
-                .then(() => {
-                    console.log(`Monitor ${monitor.name} (${monitorId}): DOWN - ${errorMessage}`);
-                })
-                .catch(err => {
-                    console.error('Error updating monitor status:', err);
-                });
+            try {
+                await db.updateMonitorStatus(monitorId, 'down', responseTime, null, errorMessage);
+                await db.createMonitorCheck(monitorId, 'down', responseTime, null, errorMessage);
+                
+                console.log(`Monitor ${monitor.name} (${monitorId}): DOWN - ${errorMessage}`);
+                
+                // Send email notification if status changed
+                await handleStatusChange(monitor, previousStatus, 'down', responseTime, errorMessage);
+                
+            } catch (err) {
+                console.error('Error updating monitor status:', err);
+            }
         });
 
-        request.on('timeout', () => {
+        request.on('timeout', async () => {
             request.destroy();
             const endTime = Date.now();
             const responseTime = endTime - startTime;
             const errorMessage = 'Request timeout';
 
             // Update monitor status
-            db.updateMonitorStatus(monitorId, 'down', responseTime, null, errorMessage)
-                .then(() => {
-                    // Record check
-                    return db.createMonitorCheck(monitorId, 'down', responseTime, null, errorMessage);
-                })
-                .then(() => {
-                    console.log(`Monitor ${monitor.name} (${monitorId}): DOWN - ${errorMessage}`);
-                })
-                .catch(err => {
-                    console.error('Error updating monitor status:', err);
-                });
+            try {
+                await db.updateMonitorStatus(monitorId, 'down', responseTime, null, errorMessage);
+                await db.createMonitorCheck(monitorId, 'down', responseTime, null, errorMessage);
+                
+                console.log(`Monitor ${monitor.name} (${monitorId}): DOWN - ${errorMessage}`);
+                
+                // Send email notification if status changed
+                await handleStatusChange(monitor, previousStatus, 'down', responseTime, errorMessage);
+                
+            } catch (err) {
+                console.error('Error updating monitor status:', err);
+            }
         });
 
         request.setTimeout(30000);
 
     } catch (error) {
         console.error('Error performing monitor check:', error);
+    }
+}
+
+// Handle status change and send email notifications
+async function handleStatusChange(monitor, previousStatus, newStatus, responseTime, errorMessage) {
+    // Only send email if status actually changed
+    if (previousStatus === newStatus) {
+        console.log(`🔕 No email sent for ${monitor.name}: Status unchanged (${newStatus})`);
+        return;
+    }
+
+    try {
+        // Get user and check email notification preferences
+        const user = await db.getUserById(monitor.user_id);
+        if (!user) {
+            console.log('User not found for monitor:', monitor.name);
+            return;
+        }
+
+        // Check if email notifications are enabled globally
+        if (!user.enable_email_notifications) {
+            console.log(`Email notifications disabled globally for user ${user.email}`);
+            return;
+        }
+
+        // Check if email notifications are enabled for this specific monitor
+        if (!monitor.email_notifications) {
+            console.log(`Email notifications disabled for monitor: ${monitor.name}`);
+            return;
+        }
+
+        // Determine which email to send to
+        const recipientEmail = user.notification_email || user.email;
+        if (!recipientEmail) {
+            console.log('No notification email found for monitor:', monitor.name);
+            return;
+        }
+
+        const timestamp = new Date().toISOString();
+        
+        console.log(`📧 Status changed for ${monitor.name}: ${previousStatus || 'unknown'} → ${newStatus}`);
+        
+        // Send email notification
+        await emailService.sendMonitorAlert(
+            recipientEmail,
+            monitor.name,
+            monitor.url,
+            newStatus,
+            responseTime,
+            errorMessage,
+            timestamp
+        );
+        
+        console.log(`✅ Email notification sent to ${recipientEmail} for monitor ${monitor.name}`);
+        
+    } catch (error) {
+        console.error('❌ Failed to send email notification:', error.message);
     }
 }
 
@@ -494,10 +763,7 @@ async function startMonitoring() {
 
             monitors.forEach(monitor => {
                 // Set up interval for each monitor
-                const intervalMs = monitor.interval_minutes * 60 * 1000;
-                setInterval(() => {
-                    performMonitorCheck(monitor.id);
-                }, intervalMs);
+                setupMonitorInterval(monitor.id, monitor.interval_minutes);
 
                 // Perform initial check
                 setTimeout(() => {

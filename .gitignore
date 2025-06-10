@@ -5,3 +5,4 @@ test-results
 .idea
 package-lock.json
 database/uptime-kama.db
+uptime_kama.db

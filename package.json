@@ -10,15 +10,23 @@
     "test:ui": "playwright test --ui",
     "test:headed": "playwright test --headed",
     "test:debug": "playwright test --debug",
-    "test:report": "playwright show-report"
+    "test:report": "playwright show-report",
+    "test:email": "node test-email-system.js"
   },
-  "keywords": ["uptime", "monitoring", "express", "handlebars"],
+  "keywords": [
+    "uptime",
+    "monitoring",
+    "express",
+    "handlebars"
+  ],
   "author": "",
   "license": "MIT",
   "dependencies": {
+    "@sendgrid/mail": "^8.1.5",
+    "bcryptjs": "^2.4.3",
+    "dotenv": "^16.5.0",
     "express": "^4.18.2",
     "express-handlebars": "^7.1.2",
-    "bcryptjs": "^2.4.3",
     "express-session": "^1.17.3",
     "express-validator": "^7.0.1",
     "sqlite3": "^5.1.6"
