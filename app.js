@@ -297,7 +297,12 @@ app.get('/settings', checkDb, async (req, res) => {
             user: user,
             title: 'Settings',
             success: req.session.success || null,
-            errors: req.session.errors || []
+            errors: req.session.errors || [],
+            // Template preview variables - showing literal template syntax
+            monitorNameTemplate: '{{monitorName}}',
+            monitorUrlTemplate: '{{monitorUrl}}',
+            statusTemplate: '{{status}}',
+            timestampTemplate: '{{timestamp}}'
         });
 
         delete req.session.success;
@@ -307,7 +312,12 @@ app.get('/settings', checkDb, async (req, res) => {
         res.render('settings', {
             user: req.session.user,
             title: 'Settings',
-            errors: [{ msg: 'Error loading settings' }]
+            errors: [{ msg: 'Error loading settings' }],
+            // Template preview variables - showing literal template syntax
+            monitorNameTemplate: '{{monitorName}}',
+            monitorUrlTemplate: '{{monitorUrl}}',
+            statusTemplate: '{{status}}',
+            timestampTemplate: '{{timestamp}}'
         });
     }
 });
@@ -401,8 +411,9 @@ app.post('/monitors', checkDb, async (req, res) => {
             emailNotificationsEnabled
         );
 
-        // Start monitoring immediately
+        // Start monitoring immediately and set up recurring checks
         performMonitorCheck(monitorId);
+        setupMonitorInterval(monitorId, intervalMinutes);
 
         req.session.success = 'Monitor added successfully and monitoring started!';
         res.redirect('/dashboard');
@@ -468,6 +479,9 @@ app.put('/monitors/:id', checkDb, async (req, res) => {
             emailNotificationsEnabled
         );
 
+        // Update monitoring interval if it changed
+        setupMonitorInterval(monitorId, intervalMinutes);
+
         res.json({ 
             success: true, 
             message: 'Monitor updated successfully' 
@@ -502,7 +516,8 @@ app.delete('/monitors/:id', checkDb, async (req, res) => {
             return res.status(403).json({ error: 'Access denied' });
         }
 
-        // Delete the monitor
+        // Clear monitoring interval and delete the monitor
+        clearMonitorInterval(monitorId);
         const deletedCount = await db.deleteMonitor(monitorId, req.session.user.id);
         
         if (deletedCount === 0) {
@@ -550,6 +565,35 @@ app.post('/logout', (req, res) => {
         res.redirect('/login');
     });
 });
+
+// Store monitor intervals so they can be cleared
+const monitorIntervals = new Map();
+
+// Set up monitoring interval for a specific monitor
+function setupMonitorInterval(monitorId, intervalMinutes) {
+    // Clear existing interval if it exists
+    if (monitorIntervals.has(monitorId)) {
+        clearInterval(monitorIntervals.get(monitorId));
+    }
+    
+    // Set up new interval
+    const intervalMs = intervalMinutes * 60 * 1000;
+    const intervalId = setInterval(() => {
+        performMonitorCheck(monitorId);
+    }, intervalMs);
+    
+    monitorIntervals.set(monitorId, intervalId);
+    console.log(`Set up monitoring interval for monitor ${monitorId}: every ${intervalMinutes} minutes`);
+}
+
+// Clear monitoring interval for a specific monitor
+function clearMonitorInterval(monitorId) {
+    if (monitorIntervals.has(monitorId)) {
+        clearInterval(monitorIntervals.get(monitorId));
+        monitorIntervals.delete(monitorId);
+        console.log(`Cleared monitoring interval for monitor ${monitorId}`);
+    }
+}
 
 // Monitoring functionality
 async function performMonitorCheck(monitorId) {
@@ -651,6 +695,7 @@ async function performMonitorCheck(monitorId) {
 async function handleStatusChange(monitor, previousStatus, newStatus, responseTime, errorMessage) {
     // Only send email if status actually changed
     if (previousStatus === newStatus) {
+        console.log(`🔕 No email sent for ${monitor.name}: Status unchanged (${newStatus})`);
         return;
     }
 
@@ -718,10 +763,7 @@ async function startMonitoring() {
 
             monitors.forEach(monitor => {
                 // Set up interval for each monitor
-                const intervalMs = monitor.interval_minutes * 60 * 1000;
-                setInterval(() => {
-                    performMonitorCheck(monitor.id);
-                }, intervalMs);
+                setupMonitorInterval(monitor.id, monitor.interval_minutes);
 
                 // Perform initial check
                 setTimeout(() => {

@@ -50,17 +50,17 @@
 
     <div class="settings-section">
         <h2>Email Template Preview</h2>
-        <div class="email-preview">
+        <div class="email-template-preview">
             <h3>Monitor Alert Preview</h3>
             <div class="email-preview-content">
                 <p><strong>Subject:</strong> 🚨 Monitor Alert: [Monitor Name] is DOWN</p>
                 <div class="email-body-preview">
-                    <p><strong>Monitor:</strong> Example Website</p>
-                    <p><strong>URL:</strong> https://example.com</p>
-                    <p><strong>Status:</strong> DOWN</p>
+                    <p><strong>Monitor Name:</strong> {{monitorNameTemplate}}</p>
+                    <p><strong>URL:</strong> {{monitorUrlTemplate}}</p>
+                    <p><strong>Status:</strong> {{statusTemplate}}</p>
                     <p><strong>Response Time:</strong> 5000ms</p>
                     <p><strong>Error:</strong> HTTP 503</p>
-                    <p><strong>Timestamp:</strong> 2024-01-15T10:30:00.000Z</p>
+                    <p><strong>Timestamp:</strong> {{timestampTemplate}}</p>
                 </div>
             </div>
         </div>
@@ -122,14 +122,14 @@
     display: block;
 }
 
-.email-preview {
+.email-template-preview {
     background: #f8f9fa;
     padding: 1rem;
     border-radius: 6px;
     border: 1px solid #dee2e6;
 }
 
-.email-preview h3 {
+.email-template-preview h3 {
     margin-top: 0;
     color: #495057;
 }
